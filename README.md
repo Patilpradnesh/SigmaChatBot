@@ -53,3 +53,51 @@ This project was developed as part of the Sigmavalue Full Stack Developer Assign
 
 ## 📁 Project Structure
 
+
+SigmaChatBot/
+│
+├── backend/
+│ ├── api/
+│ ├── realestate/
+│ ├── dataset/
+│ ├── requirements.txt
+│ ├── Procfile
+│ └── runtime.txt
+│
+└── frontend/
+├── src/
+│ ├── components/
+│ │ ├── ChatBot.jsx
+│ │ ├── MessageBubble.jsx
+│ │ ├── Loader.jsx
+│ │ ├── CompareChart.jsx
+│ │ ├── DemandChart.jsx
+│ │ ├── DataTable.jsx
+│ │ └── PriceChart.jsx
+│ ├── App.jsx
+│ └── main.jsx
+├── index.css
+└── package.json
+
+
+## 🛠 How to Run Locally
+
+### **Backend**
+```bash
+cd backend
+pip install -r requirements.txt
+python manage.py runserver
+
+Frontend
+cd frontend
+npm install
+npm run dev
+
+
+🌐 Deployment URLs
+
+Backend (Render):
+https://your-backend-url.onrender.com
+
+Frontend (Vercel):
+https://your-frontend-url.vercel.app
