@@ -14,7 +14,7 @@ def load_dataset():
     if not os.path.exists(EXCEL_PATH):
         raise FileNotFoundError(f"Dataset not found at {EXCEL_PATH}. Put the excel file there.")
     df = pd.read_excel(EXCEL_PATH, engine="openpyxl")
-    # Normalize column names: strip and lower for comparison, but keep originals too
+    # Normalize column names: strip whitespace (but keep original case)
     df.columns = [c.strip() for c in df.columns]
     return df
 
@@ -31,35 +31,35 @@ def find_location_rows(area_query):
     """Case-insensitive contains on 'final location' or sensible fallbacks."""
     if df is None:
         return pd.DataFrame()
-    # prefer exact column names we've seen
-    candidates = [c for c in df.columns if c.strip().lower() in ("final location", "final_location", "location", "area", "area name")]
+    # prefer known place columns
+    candidates = [c for c in df.columns if c.strip().lower() in ("final location", "final_location", "location", "area", "area name", "area_name")]
     if candidates:
         col = candidates[0]
         return df[df[col].astype(str).str.contains(area_query, case=False, na=False)]
-    # fallback: search all string columns
+    # fallback: search all object (string) columns
     str_cols = [c for c in df.columns if df[c].dtype == object]
     if not str_cols:
         return pd.DataFrame()
-    mask = False
+    mask = pd.Series(False, index=df.index)
     for c in str_cols:
         mask = mask | df[c].astype(str).str.contains(area_query, case=False, na=False)
     return df[mask]
 
 
 def make_json_safe_series(series):
-    """Return list converting NaN -> None and numeric to native Python types."""
+    """Return list converting NaN -> None and numpy types to native Python types."""
     out = []
     for v in series.tolist():
         if pd.isna(v):
             out.append(None)
         else:
-            # convert numpy types to Python scalars
+            # timestamps -> string; numpy numbers -> Python float
             if isinstance(v, (pd.Timestamp,)):
                 out.append(str(v))
             else:
                 try:
                     if isinstance(v, (float, int)):
-                        out.append(float(v) if pd.notna(v) else None)
+                        out.append(float(v))
                     else:
                         out.append(v)
                 except Exception:
@@ -72,7 +72,7 @@ def analyze(request):
     """
     POST JSON:
       { "query": "Analyze Wakad" }
-    Response: JSON with summary, optional chart and table
+    Response: JSON with summary, optional chart, table, compare, demand, etc.
     """
     if load_error:
         return Response({"error": f"Server dataset error: {load_error}"}, status=500)
@@ -89,12 +89,10 @@ def analyze(request):
     if ("list" in query and ("places" in query or "locations" in query)) or query in ("list places", "list locations"):
         if df is None:
             return Response({"error": "Dataset not loaded."}, status=500)
-        # try to find a sensible column for place names
         place_cols = [c for c in df.columns if c.strip().lower() in ("final location", "location", "area", "area name")]
         if place_cols:
             uniq = sorted(df[place_cols[0]].dropna().astype(str).unique().tolist())
         else:
-            # fallback to first text column
             cols = [c for c in df.columns if df[c].dtype == object]
             uniq = sorted(df[cols[0]].dropna().astype(str).unique().tolist()) if cols else []
         return Response({"summary": f"Total {len(uniq)} locations found.", "places": uniq})
@@ -105,16 +103,121 @@ def analyze(request):
             "Analyze Wakad",
             "List places",
             "Compare Ambegaon Budruk and Aundh",
+            "Compare Wakad and Hinjewadi demand",
             "Show price growth for Akurdi over last 3 years",
             "Show demand trend for Hinjewadi",
         ]
         return Response({"summary": "You can ask examples:", "examples": examples})
 
-        # ------------------------------------------------------
+    # ---- DEMAND TREND COMPARISON: "compare X and Y demand" ----
+    # place this BEFORE the generic compare to capture queries explicitly asking demand comparison
+    if "compare" in query and " and " in query and "demand" in query:
+        # remove 'demand' word then parse "compare X and Y"
+        cleaned = query.replace("demand", "").replace("compare", "").strip()
+        parts = [p.strip() for p in cleaned.split(" and ") if p.strip()]
+        if len(parts) < 2:
+            return Response({"error": "Could not parse the two locations to compare"}, status=400)
+
+        loc1, loc2 = parts[0], parts[1]
+        rows1 = find_location_rows(loc1)
+        rows2 = find_location_rows(loc2)
+        if rows1.empty or rows2.empty:
+            return Response({"error": f"Cannot find data for '{loc1}' or '{loc2}'"}, status=404)
+
+        # find demand-like numeric column
+        def find_demand_col(rows):
+            keywords = ["demand", "total units", "units", "supply", "launched"]
+            # try columns containing keywords and numeric
+            for col in rows.columns:
+                lname = col.lower()
+                if any(k in lname for k in keywords) and pd.api.types.is_numeric_dtype(rows[col]):
+                    return col
+            # fallback: any numeric column containing 'total'
+            for col in rows.columns:
+                if "total" in col.lower() and pd.api.types.is_numeric_dtype(rows[col]):
+                    return col
+            # last fallback: first numeric column
+            for col in rows.columns:
+                if pd.api.types.is_numeric_dtype(rows[col]):
+                    return col
+            return None
+
+        col1 = find_demand_col(rows1)
+        col2 = find_demand_col(rows2)
+        if col1 is None or col2 is None:
+            return Response({"error": "No numeric demand-like column found for one or both locations"}, status=500)
+
+        if "year" not in rows1.columns or "year" not in rows2.columns:
+            return Response({"error": "Dataset missing 'year' column for comparison"}, status=500)
+
+        t1 = rows1.sort_values("year")[[ "year", col1 ]]
+        t2 = rows2.sort_values("year")[[ "year", col2 ]]
+
+        demand_compare = {
+            loc1: [
+                {"year": int(r["year"]) if not pd.isna(r["year"]) else None,
+                 "value": None if pd.isna(r[col1]) else float(r[col1])}
+                for _, r in t1.iterrows()
+            ],
+            loc2: [
+                {"year": int(r["year"]) if not pd.isna(r["year"]) else None,
+                 "value": None if pd.isna(r[col2]) else float(r[col2])}
+                for _, r in t2.iterrows()
+            ]
+        }
+
+        return Response({
+            "summary": f"Demand comparison between {loc1} and {loc2}.",
+            "demand_compare": demand_compare
+        })
+
+    # ---- Intent: general compare "Compare X and Y" ----
+    if "compare" in query and " and " in query:
+        cleaned = query.replace("compare", "").strip()
+        parts = [p.strip() for p in cleaned.split(" and ") if p.strip()]
+        if len(parts) >= 2:
+            a, b = parts[0], parts[1]
+            rows_a = find_location_rows(a)
+            rows_b = find_location_rows(b)
+            if rows_a.empty or rows_b.empty:
+                return Response({"error": f"One or both locations not found: '{a}', '{b}'"}, status=404)
+
+            # try find numeric column for trend
+            def find_numeric_col(r):
+                # prefer columns with 'total' or 'units'
+                for candidate in r.columns:
+                    lc = candidate.lower()
+                    if ("total" in lc or "unit" in lc) and pd.api.types.is_numeric_dtype(r[candidate]):
+                        return candidate
+                # fallback first numeric column
+                for c in r.columns:
+                    if pd.api.types.is_numeric_dtype(r[c]):
+                        return c
+                return None
+
+            col = find_numeric_col(rows_a)
+            def make_trend(rows, colname):
+                if colname and "year" in rows.columns and colname in rows.columns:
+                    tmp = rows.sort_values("year")[[ "year", colname ]]
+                    return [
+                        {"year": int(r["year"]) if not pd.isna(r["year"]) else None,
+                         "value": None if pd.isna(r[colname]) else float(r[colname])}
+                        for _, r in tmp.iterrows()
+                    ]
+                else:
+                    # fallback: head rows as records
+                    return rows.head(10).to_dict(orient="records")
+
+            return Response({
+                "summary": f"Comparison for '{a}' vs '{b}' (column used: {col})",
+                "compare": { a: make_trend(rows_a, col), b: make_trend(rows_b, col) }
+            })
+
+    # ------------------------------------------------------
     # DEMAND TREND: "show demand trend for <area>"
     # ------------------------------------------------------
     if ("demand" in query and "trend" in query) or ("show demand" in query):
-        # Extract area name
+        # Extract area name by removing keywords
         area = query
         for token in ["show", "demand", "trend", "for", "of"]:
             area = area.replace(token, "")
@@ -126,45 +229,35 @@ def analyze(request):
         if rows.empty:
             return Response({"error": f"No data found for {area}"}, status=404)
 
-        # find demand-related column automatically
+        # find demand-related numeric column
         demand_col = None
-        priority_keywords = ["demand", "total units", "units", "supply", "launched"]
-
-        # 1. look for exact keywords
+        keywords = ["demand", "total units", "units", "supply", "launched"]
         for col in rows.columns:
-            lower = col.lower().strip()
-            if any(k in lower for k in priority_keywords):
-                if pd.api.types.is_numeric_dtype(rows[col]):
-                    demand_col = col
-                    break
-
-        # 2. fallback: any numeric column with "total"
+            if any(k in col.lower() for k in keywords) and pd.api.types.is_numeric_dtype(rows[col]):
+                demand_col = col
+                break
         if demand_col is None:
+            # fallback: numeric column with 'total'
             for col in rows.columns:
                 if "total" in col.lower() and pd.api.types.is_numeric_dtype(rows[col]):
                     demand_col = col
                     break
-
-        # 3. last fallback: first numeric column
         if demand_col is None:
+            # last fallback: first numeric column
             for col in rows.columns:
                 if pd.api.types.is_numeric_dtype(rows[col]):
                     demand_col = col
                     break
-
         if demand_col is None:
             return Response({"error": "No numeric demand-related column found"}, status=500)
 
-        # Build trend
         if "year" not in rows.columns:
             return Response({"error": "Dataset missing 'year' column"}, status=500)
 
         ordered = rows.sort_values("year")
         trend = [
-            {
-                "year": int(r["year"]) if not pd.isna(r["year"]) else None,
-                "value": None if pd.isna(r[demand_col]) else float(r[demand_col])
-            }
+            {"year": int(r["year"]) if not pd.isna(r["year"]) else None,
+             "value": None if pd.isna(r[demand_col]) else float(r[demand_col])}
             for _, r in ordered.iterrows()
         ]
 
@@ -172,46 +265,6 @@ def analyze(request):
             "summary": f"Demand trend for {area} using column '{demand_col}'.",
             "demand": trend
         })
-
-    # --- Intent: compare X and Y ---
-    if "compare" in query and " and " in query:
-        parts = query.replace("compare", "").strip().split(" and ")
-        if len(parts) >= 2:
-            a = parts[0].strip()
-            b = parts[1].strip()
-            rows_a = find_location_rows(a)
-            rows_b = find_location_rows(b)
-            if rows_a.empty or rows_b.empty:
-                return Response({"error": f"One or both locations not found: '{a}', '{b}'"}, status=404)
-
-            # decide a numeric column for trend (prefer 'total units' or any 'total' column)
-            def find_numeric_col(r):
-                for candidate in ["total units", "total_units", "total units "]:
-                    if candidate in r.columns:
-                        return candidate
-                for c in r.columns:
-                    if "total" in c.lower() and pd.api.types.is_numeric_dtype(r[c]):
-                        return c
-                # fallback numeric column
-                for c in r.columns:
-                    if pd.api.types.is_numeric_dtype(r[c]):
-                        return c
-                return None
-
-            col = find_numeric_col(rows_a)
-            def trend(rows, col):
-                if "year" in rows.columns and col in rows.columns:
-                    tmp = rows.sort_values("year")[["year", col]]
-                    return [{"year": int(r["year"]) if not pd.isna(r["year"]) else None,
-                             "value": (None if pd.isna(r[col]) else float(r[col]))}
-                            for _, r in tmp.iterrows()]
-                else:
-                    return rows.head(10).to_dict(orient="records")
-
-            return Response({
-                "summary": f"Comparison for '{a}' vs '{b}' (column used: {col})",
-                "compare": {a: trend(rows_a, col), b: trend(rows_b, col)}
-            })
 
     # --- Intent: show price growth for <area> over last N years ---
     if ("last" in query and "year" in query) or ("price growth" in query and "last" in query):
@@ -239,16 +292,24 @@ def analyze(request):
         # find a price column
         price_col = None
         for candidate in ["flat - weighted average rate", "flat weighted average rate", "price", "avg_price"]:
-            if candidate in recent.columns:
-                price_col = candidate
+            for c in recent.columns:
+                if c.lower().strip() == candidate:
+                    price_col = c
+                    break
+            if price_col:
                 break
+        # fallback: any numeric column with 'price' or 'rate'
+        if price_col is None:
+            for c in recent.columns:
+                if ("price" in c.lower() or "rate" in c.lower()) and pd.api.types.is_numeric_dtype(recent[c]):
+                    price_col = c
+                    break
 
         chart = {}
+        chart["years"] = make_json_safe_series(recent["year"])
         if price_col:
-            chart["years"] = make_json_safe_series(recent["year"])
             chart["prices"] = [None if pd.isna(x) else float(x) for x in recent[price_col].tolist()]
         else:
-            chart["years"] = make_json_safe_series(recent["year"])
             chart["prices"] = [None] * len(chart["years"])
 
         return Response({
@@ -272,10 +333,20 @@ def analyze(request):
 
     # try to find price column
     price_col = None
+    lower_cols = [c.lower() for c in rows.columns]
     for candidate in ["flat - weighted average rate", "flat weighted average rate", "price", "avg_price"]:
-        if candidate in rows.columns:
-            price_col = candidate
+        for c in rows.columns:
+            if c.lower().strip() == candidate:
+                price_col = c
+                break
+        if price_col:
             break
+    if price_col is None:
+        # fallback: any numeric column with 'price' or 'rate'
+        for c in rows.columns:
+            if ("price" in c.lower() or "rate" in c.lower()) and pd.api.types.is_numeric_dtype(rows[c]):
+                price_col = c
+                break
 
     chart = {}
     if "year" in rows.columns and price_col:
@@ -294,3 +365,4 @@ def analyze(request):
         "chart": chart,
         "table": table
     })
+ 
