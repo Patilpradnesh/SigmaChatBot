@@ -53,58 +53,22 @@ This project was developed as part of the Sigmavalue Full Stack Developer Assign
 
 ## 📁 Project Structure
 
-SigmaChatBot/
-│
-├── backend/                          
-│   │
-│   ├── manage.py
-│   ├── Procfile                     
-│   ├── runtime.txt                
-│   ├── requirements.txt             
-│   │
-│   ├── dataset/                    
-│   │   └── realestate.xlsx       
-│   │
-│   ├── api/                      
-│   │   ├── __init__.py
-│   │   ├── views.py               
-│   │   └── urls.py  (optional)
-│   │
-│   ├── realestate/                  
-│   │   ├── __init__.py
-│   │   ├── settings.py             
-│   │   ├── urls.py                  
-│   │   ├── wsgi.py                 
-│   │   └── asgi.py
-│   │
-│   └── staticfiles/                 
-│
-│
-└── frontend/                       
-    │
-    ├── index.html
-    ├── package.json
-    ├── vite.config.js
-    ├── postcss.config.cjs
-    ├── tailwind.config.cjs
+SigmaChatBot
+├── backend
+│   ├── api
+│   ├── dataset
+│   ├── realestate
+│   ├── requirements.txt
+│   ├── Procfile
+│   └── runtime.txt
+└── frontend
+    ├── src
+    │   ├── components
+    │   ├── App.jsx
+    │   └── main.jsx
     ├── index.css
-    │
-    ├── src/
-    │   ├── main.jsx                 
-    │   ├── App.jsx                 
-    │   │
-    │   └── components/              # UI components
-    │       ├── ChatBot.jsx          # Main chatbot UI
-    │       ├── MessageBubble.jsx    # Chat messages bubbles
-    │       ├── Loader.jsx           # Typing / loading indicator
-    │       ├── PriceChart.jsx       # Price trend chart
-    │       ├── DemandChart.jsx      # Demand trend
-    │       ├── CompareChart.jsx     # Comparison chart
-    │       ├── DataTable.jsx        # Table view for raw data
-    │       └── PlacesList.jsx       # List of places
-    │
-    └── public/
-        └── (static assets if any)
+    └── package.json
+
 
 
 ## 🛠 How to Run Locally
