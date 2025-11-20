@@ -10,7 +10,7 @@ import CompareChart from "./CompareChart.jsx";
 import DemandChart from "./DemandChart.jsx";
 import InteractiveMenu from "./InteractiveMenu.jsx";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8000/api/analyze/";
+const BACKEND_URL = "https://sigmabot-dke5.onrender.com/api/analyze/" || "http://127.0.0.1:8000/api/analyze/";
 
 export default function ChatBot() {
   const [query, setQuery] = useState("");
