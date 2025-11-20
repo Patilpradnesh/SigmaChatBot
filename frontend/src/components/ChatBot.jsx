@@ -12,7 +12,7 @@ import InteractiveMenu from "./InteractiveMenu.jsx";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8000/api/analyze/";
 
-export default function Chatbot() {
+export default function ChatBot() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);

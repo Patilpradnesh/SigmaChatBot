@@ -7,7 +7,7 @@ export default function App() {
     <div className="min-h-screen bg-gray-100">
       <Navbar />
       <div className="p-6">
-        <Chatbot />
+        <ChatBot />
       </div>
     </div>
   );
