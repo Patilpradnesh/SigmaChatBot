@@ -1,6 +1,6 @@
 // src/App.jsx
 import Navbar from "./components/Navbar";
-import Chatbot from "./components/ChatBot.jsx";
+import ChatBot from "./components/ChatBot.jsx";
 
 export default function App() {
   return (
