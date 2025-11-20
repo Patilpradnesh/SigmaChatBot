@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* small custom rules */
+html, body, #root {
+  height: 100%;
+}
+code {
+  background: rgba(0,0,0,0.04);
+  padding: .125rem .25rem;
+  border-radius: .25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+}

@@ -50,3 +50,7 @@ coverage.xml
 *.swp
 
 .History/
+
+node_modules
+dist
+.env
